@@ -1,0 +1,482 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE cxchelptopics SYSTEM "CXCHelp.dtd">
+<cxchelptopics>
+   <ENTRY context="tools" key="dmellipse" refkeywords="dm image images 
+   best-fit fit fraction moment centroid ellipticity ellipse ellipses" 
+   seealsogroups="dmimgtools">
+   <SYNOPSIS>
+    Finds ellipse for specified fraction
+   </SYNOPSIS>
+   <DESC>
+      <PARA>
+         `dmellipse' finds an ellipse that encloses the user
+         specified fraction of the flux in an image to 
+         within some specified tolerance. 
+         The default behavior is to find an ellipse whose
+         center is the centroid of the data, and whose radii
+         align with the orientation of the data.
+      </PARA>
+      <PARA>
+          The tool works by computing the centroid and moments 
+          of the entire image.  The radii of the ellipse and
+          angle of the ellipse are computed from the 1st and 2nd
+          moments.  The resulting ellipse is then used to filter
+          the image.  If the sum of the pixel values in the 
+          ellipse is too small, the radii are increased by 1 pixel.  If the sum
+          is too larger, the radii is decreased by 1 pixel.
+          A new set of centroid, radii, and angle are computed from
+          the data in just the filtered region.  Again if the
+          sum of the pixels exceeds the fraction by more than the
+          tolerance, the radii are shrunk by 1.  If the enclosed
+          fraction is too small, the radii are increased by 1 pixel.  The process
+          then repeats.  The step size is reduced by half each time
+          the previous iteration and the current iteration differ
+          in whether the fraction is too big or too small.  This provides
+          a means for the algorithm to converge onto the solution.  The
+          iterations stop when the fraction of the flux in the image is
+          with 'tolerance' of the specified fraction.
+      </PARA>
+      <PARA>
+          Due to finite pixel sizes, there may not be an ellipse
+          that can meet the fraction criteria.  In that case an
+          warning is printed to the screen and the closest value
+          of the ellipse parameter are saved.      
+      </PARA>
+
+      <PARA>
+          In some rare situations changing the radii does not result
+          in any change of the image moments (centroid, fraction or radii).
+          For example a single bright pixel containing 50% of the image
+          flux with a very large region of pixels with 0 flux surrounding it.
+          dmellipse may get "stuck" in this case trying to increase or
+          decrease the radii by fractions of a pixel without effecting
+          any change.  There is a safeguard built into the tool to 
+          terminate any such searches after "maxwalk" iterations.
+          If this occurs users may need to set the 'step' parameter to
+          a larger initial value (or maybe rebin the image).
+      
+      </PARA>
+
+
+
+   </DESC>
+
+
+   <QEXAMPLELIST>
+      <QEXAMPLE>
+         <SYNTAX>
+            <LINE>
+               dmellipse img.fits 50perc.reg 0.5
+            </LINE>
+         </SYNTAX>
+         <DESC>
+            <PARA>
+               Finds the ellipse that encloses 50% of the
+               energy/flux in the image.
+            </PARA>
+         </DESC>
+      </QEXAMPLE>
+
+      <QEXAMPLE>
+         <SYNTAX>
+            <LINE>
+               dmellipse img.fits 50perc.reg 0.5,0.9
+            </LINE>
+         </SYNTAX>
+         <DESC>
+            <PARA>
+               Finds the ellipses that encloses 50% and 90% of the
+               energy/flux in the image.
+            </PARA>
+         </DESC>
+      </QEXAMPLE>
+
+      <QEXAMPLE>
+         <SYNTAX>
+            <LINE>
+               dmellipse img.fits 50perc.reg lgrid(0.5:0.91:0.1)
+            </LINE>
+         </SYNTAX>
+         <DESC>
+            <PARA>
+               Finds the ellipse that encloses 50%, 60%, 70%, 80%
+                and 90% of the
+               energy/flux in the image.
+            </PARA>
+            <PARA>
+                Note that to get the 90% radii we used an upper limit of 0.91
+                in the grid specification.  This is because the stack grid
+                computes values x&lt;value for floating-point-value not
+                 x&lt;=value.
+            </PARA>
+         </DESC>
+      </QEXAMPLE>
+
+      <QEXAMPLE>
+         <SYNTAX>
+            <LINE>
+               dmellipse img.fits 50perc.reg 0.5 fix_centroid=yes
+            </LINE>
+         </SYNTAX>
+         <DESC>
+            <PARA>
+               Finds the ellipses that encloses 50% and 90% of the
+               energy/flux in the image.  The centroid is fixed to be 
+               the centroid of the entire image; rather than being
+               left to vary.
+            </PARA>
+         </DESC>
+      </QEXAMPLE>
+
+      <QEXAMPLE>
+         <SYNTAX>
+            <LINE>
+               dmellipse img.fits 50perc.reg 0.5 fix_centroid=yes x_centroid=4096 y_centroid=4096
+            </LINE>
+         </SYNTAX>
+         <DESC>
+            <PARA>
+               Similar to above.  Finds the ellipses that encloses 50% and 90% of the
+               energy/flux in the image.  The centroid is fixed to be 
+               the user supplied value (4096,4096).
+            </PARA>
+         </DESC>
+      </QEXAMPLE>
+
+      <QEXAMPLE>
+         <SYNTAX>
+            <LINE>
+               dmellipse img.fits 50perc.reg 0.5 shape=rotbox
+            </LINE>
+         </SYNTAX>
+         <DESC>
+            <PARA>
+               Finds the rotated-box (rectangle) that encloses 
+               50% of the
+               energy/flux in the image.
+            </PARA>
+         </DESC>
+      </QEXAMPLE>
+
+      <QEXAMPLE>
+         <SYNTAX>
+            <LINE>
+               dmellipse img.fits[sky=circle(4096,4096,100)]  50perc.reg 0.5 normalize=no
+            </LINE>
+         </SYNTAX>
+         <DESC>
+            <PARA>
+               Find ellipse that encloses 50% of the flux; setting normalize=no
+               lets the tool know that the data  have already been normalized
+                (so 'no' the tool should not normalize the data).
+            </PARA>
+         </DESC>
+      </QEXAMPLE>
+
+      <QEXAMPLE>
+	<SYNTAX>
+	  <LINE>
+	      dmellipse img.fits eef.fits fraction=0.9 shape=ellipse fix_ellipticity=yes ellipticity=1
+	  </LINE>
+	</SYNTAX>
+	<DESC>
+	   <PARA>
+	     By freezing the ellipticity to a value=1,  the ellipses
+         are forced to be circular.  Since the
+	     angle of a circle is undefined, it could also
+	     be frozen to be 0 by setting
+	     fix_angle=yes angle=0.  The output file will still
+	     contain "shape=ellipse" however both radii will
+	     be the same.
+	   </PARA>	  
+	</DESC>
+      </QEXAMPLE>
+
+
+   </QEXAMPLELIST>
+
+
+
+
+
+   <PARAMLIST>
+      <PARAM filetype="input" name="infile" reqd="yes" type="file">
+         <SYNOPSIS>
+Input image
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+Input image.  It must have all positive values (so if background
+subtracted, make sure to threshold).
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM filetype="output" name="outfile" reqd="yes" type="file">
+         <SYNOPSIS>
+Output region file
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+ASC-FITS region file with additional columns indicating which
+fraction and status information.  It can be used directly 
+in ds9 to visualize the ellipses or used as any other
+CIAO region filter.
+            </PARA>
+            <PARA>
+            The "fraction" column gives the fraction of the flux
+            found in the region.              
+            </PARA>
+            <PARA>
+            If the fraction is not with tolerance of the specified
+            value, then the "state" and "converge" columns will 
+            indicate  
+            </PARA>
+            <LIST>
+              <ITEM>'OK' : state=0,  fraction is within tolerance of requested value</ITEM>
+              <ITEM>'CANNOT_CONVERGE' : state=1, due to finite pixel sizes cannot make ellipse that meets 
+                tolerance but value should be "close".</ITEM>
+              <ITEM>'ELLIPSE_TOO_SMALL' : state=2, more than specified fraction is contained
+              in a single pixel; cannot make ellipse any smaller.</ITEM>
+              <ITEM>'ELLIPSE_TOO_BIG' : state=3, specified fraction is not
+              contained in the entire image (usually when normalize=no).  Cannot make
+              an ellipse big enough.  </ITEM>
+              <ITEM>'WALK_TOO_MANY_STEPS' : state=4, too many iterations where
+                centroid and radii did not change.  </ITEM>
+            </LIST>
+
+
+         </DESC>
+      </PARAM>
+
+
+      <PARAM name="fraction" reqd="yes" stacks="yes" type="string">
+         <SYNOPSIS>
+Enclosed counts/flux fraction.
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+The value(s) to find the ellipse.  This can be specified using
+any of the stack syntax including lgrid() or just a comma separated list (or
+just a single value).
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="ellipse" name="shape" reqd="no" type="string">
+         <SYNOPSIS>
+shape of region
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+can be either 'ellipse' or 'rotbox'
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="INDEF" name="x_centroid" reqd="no" type="real">
+         <SYNOPSIS>
+default x-centroid
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+The default x-centroid can be input via this parameter or if the value is set 
+to INDEF the value will be computed over the entire image.
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="INDEF" name="y_centroid" reqd="no" type="real">
+         <SYNOPSIS>
+default y-centroid
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+The default y-centroid can be input via this parameter or if the value is set 
+to INDEF the value will be computed over the entire image.
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="INDEF" name="angle" reqd="no" type="real">
+         <SYNOPSIS>
+default angle
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+
+
+The default angle can be input via this parameter or if the value is set 
+to INDEF the value will be computed over the entire image.
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="INDEF" name="ellipticity" reqd="no" type="real">
+         <SYNOPSIS>
+default ellipticity
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+The default ellipticity can be input via this parameter or if the value is set 
+to INDEF the value will be computed over the entire image.
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="no" name="fix_centroid" reqd="no" type="boolean">
+         <SYNOPSIS>
+allow centroid to vary
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+during the iterations the centroid can be allowed to vary or it
+can be held fixed at the default value (see x_ and y_centroid for
+default value)
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="no" name="fix_angle" reqd="no" type="boolean">
+         <SYNOPSIS>
+allow angle to vary
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+during the iterations the angle can be allowed to vary or it can
+be held fixed at the default value (see angle parameter for the
+default value)
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="no" name="fix_ellipticity" reqd="no" type="boolean">
+         <SYNOPSIS>
+allow ellipticity to vary
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+during the iterations the ellipticity can be allowed to vary or it can
+be held fixed at the default value (see ellipticity parameter for
+the default value).
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="0.001" max="1" min="0" name="tolerance" reqd="no" type="real">
+         <SYNOPSIS>
+ How close to desired fraction is close enough?
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+ The iterations will continue until the fraction is within fraction-tolerance
+to fraction+tolerance (so total-width is 2*tolerance).
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="0.001" max="1" min="0" name="minstep" reqd="no" type="real">
+         <SYNOPSIS>
+minimum step size
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+As the iterations proceed and we change from increasing to decreasing the
+radii we make the step size increasing smaller; this is the minimum step size
+to use.  After reaching this the iterations will stop.
+            </PARA>
+         </DESC>
+      </PARAM>
+
+      <PARAM def="10" min="1" name="maxwalk" reqd="no" type="integer">
+         <SYNOPSIS>
+maximum number of equally applicable iterations.
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+We we have a candidate radii we use the ellipticity, angle, and centroid 
+to do one last check.  If the ellipse defined by those is still good (fraction 
+is within tolerance) the we stop.  If not, we 'walk' to the next iteration.
+This could lead to a situation where we oscillate between good and bad without
+changing step-size.  This parameter limits this condition.
+            </PARA>
+         </DESC>
+      </PARAM>
+
+     <PARAM def="1" min="0" name="step" reqd="no" type="real">
+      <SYNOPSIS>
+        Initial step size
+      </SYNOPSIS>
+      <DESC>
+         <PARA> 
+         The intial step size.  If the program seems to be taking a long time
+       it may be because the algorithm is creaping slowly towards the
+      solution.  Setting verbose greater than 2 will show the progress
+      of the tool.  Increasing the step size will allow the program to get
+      close to the optimal solution quicky and then more quickly refine
+      the solution until the tolerance (or other exit conditions) is (are) met.
+
+         </PARA>
+      </DESC>
+     </PARAM>
+
+      <PARAM def="yes" name="normalize" reqd="no" type="boolean">
+         <SYNOPSIS>
+  Normalize input image or not?
+         </SYNOPSIS>
+         <DESC>
+            <PARA>
+  Is the fraction really a fraction (% of total flux) or is it 
+  the integral?
+            </PARA>
+         </DESC>
+      </PARAM>
+
+
+
+ <PARAM def="no" name="clobber" type="boolean">
+<SYNOPSIS>
+
+        Remove output if it exists?
+    
+</SYNOPSIS>
+<DESC>
+<PARA>
+
+        Used to specify whether or not to clobber existing file that
+        has the same name as the specified output file
+         
+</PARA>
+
+</DESC>
+
+</PARAM>
+<PARAM def="0" max="5" min="0" name="verbose" type="integer">
+<SYNOPSIS>
+
+        The tool chatter level
+    
+</SYNOPSIS>
+<DESC>
+<PARA>
+
+        Verbose can be from 0 to 5, generating different amounts
+        of debugging output.
+         
+</PARA>
+
+</DESC>
+
+</PARAM>
+
+   </PARAMLIST>
+
+    <BUGS><PARA>
+        See the
+        <HREF link="http://cxc.harvard.edu/ciao/bugs/dmellipse.html">bugs page
+          for this tool</HREF>
+        on the CIAO website for an up-to-date listing of known bugs.
+      </PARA></BUGS>
+   <LASTMODIFIED>December 2013</LASTMODIFIED>
+</ENTRY>
+</cxchelptopics>

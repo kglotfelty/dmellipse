@@ -1,0 +1,760 @@
+/*                                                                
+**  Copyright (C) 2004-2008,2011,2014  Smithsonian Astrophysical Observatory 
+*/                                                                
+
+/*                                                                          */
+/*  This program is free software; you can redistribute it and/or modify    */
+/*  it under the terms of the GNU General Public License as published by    */
+/*  the Free Software Foundation; either version 3 of the License, or       */
+/*  (at your option) any later version.                                     */
+/*                                                                          */
+/*  This program is distributed in the hope that it will be useful,         */
+/*  but WITHOUT ANY WARRANTY; without even the implied warranty of          */
+/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the           */
+/*  GNU General Public License for more details.                            */
+/*                                                                          */
+/*  You should have received a copy of the GNU General Public License along */
+/*  with this program; if not, write to the Free Software Foundation, Inc., */
+/*  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.             */
+/*                                                                          */
+
+
+
+#include <dslib.h>
+#include "dmimgio.h"
+#include <stack.h>
+#include <histlib.h>
+
+#include <dsnan.h>
+#include <math.h>
+#include <float.h>
+
+
+typedef enum {
+  Working = -1,
+  Success,
+  Converge,
+  TooSmall,
+  TooBig, 
+  TooManySteps
+} State_Code;
+
+
+int convert_coords( dmDescriptor *xdesc, 
+		    dmDescriptor *ydesc,
+		    long xx,
+		    long yy,
+		    double *xat,
+		    double *yat
+		    );
+
+
+int convert_coords( dmDescriptor *xdesc, 
+		    dmDescriptor *ydesc,
+		    long xx,
+		    long yy,
+		    double *xat,
+		    double *yat
+		    )
+{
+
+  
+  if ( xdesc ) {
+    double lgc[2];
+    double phy[2];
+    lgc[0] = xx+1;
+    lgc[1] = yy+1;
+    dmCoordCalc_d( xdesc, lgc, phy );
+    if ( ydesc ) {
+      dmCoordCalc_d( ydesc, lgc+1, phy+1 );
+    }
+    *xat = phy[0];
+    *yat = phy[1];
+  } else {
+    *xat = xx;
+    *yat = yy;
+  }
+
+  return(0);
+
+}
+
+
+typedef struct {
+  double x_mu;
+  double y_mu;
+  double out[3][3];
+  double phi;
+  double ecc;
+  double xsig;
+  double ysig;
+  double ell;
+} Moments;
+
+
+
+
+int get_moments( void *data, dmDataType dt, long *lAxes, short *mask,
+		 dmDescriptor *xdesc, dmDescriptor *ydesc,
+		 Moments *mom );
+
+int get_moments( void *data, dmDataType dt, long *lAxes, short *mask,
+		 dmDescriptor *xdesc, dmDescriptor *ydesc,
+		 Moments *mom )
+{
+  double vv;
+  long xx, yy;
+  double mm_0_2, mm_2_0, mm_1_1;
+  double mm_diag_diff;
+  double mm_0_2_sq, mm_2_0_sq, mm_1_1_sq;
+
+  int retval = 0;
+
+  vv = 0;
+  mom->x_mu = 0;
+  mom->y_mu = 0;
+  for (yy=lAxes[1]; yy--; ) {
+    for ( xx=lAxes[0]; xx--; ) {
+      double val;
+      double xat, yat;
+      val = get_image_value( data, dt, xx, yy, lAxes, mask );
+      if ( ds_dNAN(val ) ) continue;
+      
+      val = fabs(val);
+      retval++;
+      convert_coords( xdesc, ydesc, xx, yy, &xat, &yat );
+
+      vv += val;
+      mom->x_mu += xat * val;
+      mom->y_mu += yat * val;
+
+    } /* end for loop over xx */
+  } /* end for loop over yy */
+
+  if ( 0 == vv ) return(0);
+
+  mom->x_mu /= vv;
+  mom->y_mu /= vv;
+
+  mom->out[0][0] = mom->out[0][1] = mom->out[0][2] = 0;
+  mom->out[1][0] = mom->out[1][1] = mom->out[1][2] = 0;
+  mom->out[2][0] = mom->out[2][1] = mom->out[2][2] = 0;
+
+  for (yy=lAxes[1]; yy--; ) {
+    double yy_qq;
+    
+    for ( xx=lAxes[0]; xx--; ) {
+      double val;
+      double xx_pp;
+      double xat, yat;
+      
+      long ii, jj;
+
+      val = get_image_value( data, dt, xx, yy, lAxes, mask );
+      if ( ds_dNAN(val ) ) continue;
+      val = fabs(val);
+
+      convert_coords( xdesc, ydesc, xx, yy, &xat, &yat );
+
+
+      for ( ii=0;ii<3;ii++ ) {
+	for ( jj=0;jj<3;jj++ ) {
+	  xx_pp = pow((xat-(mom->x_mu)),ii);
+	  yy_qq = pow((yat-(mom->y_mu)),jj);
+	  
+	  mom->out[ii][jj] += ( xx_pp * yy_qq * val );
+	}
+      }
+
+    } /* end for loop over xx */
+  } /* end for loop over yy */
+
+  
+  mm_2_0 = mom->out[2][0]/vv;
+  mm_0_2 = mom->out[0][2]/vv;
+  mm_1_1 = mom->out[1][1]/vv;
+
+  mm_2_0_sq = mm_2_0 * mm_2_0;
+  mm_0_2_sq = mm_0_2 * mm_0_2;
+  mm_1_1_sq = mm_1_1 * mm_1_1;
+
+
+  mm_diag_diff = mm_2_0 - mm_0_2;
+  mom->xsig = ( mm_2_0 + mm_0_2 ) + sqrt ( mm_diag_diff * mm_diag_diff + 
+					   4 * mm_1_1 * mm_1_1 );
+  mom->xsig /= 2.0;
+  mom->xsig = 2.0 * sqrt( mom->xsig );
+
+  mom->ysig = ( mm_2_0 + mm_0_2 ) - sqrt ( mm_diag_diff * mm_diag_diff + 
+					   4 * mm_1_1 * mm_1_1 );
+  mom->ysig /= 2.0;
+  mom->ysig = 2.0 * sqrt( mom->ysig );
+
+  if ( fabs(mm_diag_diff) > FLT_EPSILON ) {
+    mom->phi = 0.5 * (180.0/3.141592)*atan2( (2.0 * mm_1_1) , mm_diag_diff );
+  } else {
+    mom->phi = 90;
+  }
+
+  if ( mom->ysig > FLT_EPSILON ) {
+    mom->ell = mom->xsig / mom->ysig;
+  } else {
+    mom->ell = 1.0;
+  }
+
+  
+
+  return(retval);
+}
+
+
+
+/*
+  as written this could be cause problems if the shape
+  intersected with the DSS/NaN/NULL 'mask' contained
+  0 points.  The way the logic in the main program
+  is written this could result in NaN's as
+  mom.out[0][0] would be 0.
+
+  There is another general check that all pixel values should
+  be > 0.  There is an assumption that making radii bigger will
+  increase fraction which is only true if all pixels are > 0.
+
+*/
+
+void make_ellipse_mask( short *ellmask, long *lAxes, 
+			Moments *mom, 
+			dmDescriptor *xdesc, 
+			dmDescriptor *ydesc,
+			float offset,
+			char *shape);
+
+void make_ellipse_mask( short *ellmask, long *lAxes, 
+			Moments *mom, 
+			dmDescriptor *xdesc, 
+			dmDescriptor *ydesc,
+			float offset,
+			char *shape)
+{
+  long xx, yy;
+
+  regRegion *ellipse;
+  char ellstr[1000];
+  double r0, r1;
+
+  r0 = offset;
+  r1 = r0 / mom->ell;
+  
+
+  sprintf(ellstr, "%s(%g,%g,%g,%g,%g)", shape,
+	  mom->x_mu, mom->y_mu, r0, r1, mom->phi );
+  /* printf("%s\n", ellstr );*/
+  ellipse = regParse(ellstr);
+
+  for (yy=lAxes[1]; yy--; ) {
+    for ( xx=lAxes[0]; xx--; ) {
+      double xat, yat;
+
+      if ( ellmask[xx+yy*lAxes[0]] ) {
+	convert_coords( xdesc, ydesc, xx, yy, &xat, &yat );
+	if ( !regInsideRegion( ellipse, xat, yat ) )
+	  ellmask[xx+yy*lAxes[0]] = 0;
+      }
+
+    }
+  }
+
+  regFree(ellipse);
+
+}
+
+
+void reset_mask(short *mask, short *ellmask, long *lAxes );
+
+void reset_mask(short *mask, short *ellmask, long *lAxes ) 
+{
+  long ii;
+  for (ii=lAxes[1]*lAxes[0];ii--; ) {
+    if (mask) {
+      ellmask[ii] = mask[ii];
+    } else {
+      ellmask[ii] = 1;
+    }
+  }
+}
+
+
+long parse_grid( char *grid, double **vals );
+long parse_grid( char *grid, double **vals )
+{
+  long nval;
+  Stack _gs;
+  long ii;
+  nval = 0;
+
+  if (( NULL == grid ) || ( 0 == strlen(grid))) {
+    err_msg("ERROR: Empty grid\n");
+    return(nval);
+  }
+
+  
+  _gs = stk_build(grid);
+  if (( NULL == _gs ) ||
+      ( 0 == stk_count(_gs) ) ||
+      ( ( 1 == stk_count(_gs) && ( 0 == strlen(stk_read_num(_gs,1))))) ){
+    err_msg("ERROR: Could not stack expand grid='%s'\n", grid );
+    return(nval);
+  }
+
+
+  stk_rewind(_gs);
+  nval = stk_count(_gs);
+  *vals = (double*)calloc(nval, sizeof(double));
+  for (ii=1;ii<=nval;ii++ ) {
+    char *val = stk_read_num(_gs, ii);
+    char *ptr;
+    double dval;
+    
+    dval = strtod(val, &ptr );
+    if ( (ptr ) && (ptr[0] != 0 )) {
+      err_msg("ERROR: Could not parse '%s'\n", val );
+      return(0);
+    }
+    free(val);
+    (*vals)[ii-1] = dval;
+    
+  } /* end for ii */
+
+  return(nval);
+}
+
+
+
+int ellipse(void);
+
+int ellipse(void)
+{
+
+
+  char infile[DS_SZ_PATHNAME];
+  char outfile[DS_SZ_PATHNAME];
+  char grid[DS_SZ_PATHNAME];
+  dmBlock *inBlock;
+  dmDataType dt;
+  void *data=NULL;
+  long *lAxes=NULL;
+  regRegion *dss=NULL;
+  long null;
+  short has_null;
+  short *mask=NULL;
+  dmDescriptor *xdesc=NULL;
+  dmDescriptor *ydesc=NULL;
+  
+  double tol;
+  double step_tol;
+  double step_start;
+  long walk_max;
+  short freeze_centroid;
+  short freeze_ell;
+  short freeze_angle;
+  char shape[100];
+
+  double def_x_mu;
+  double def_y_mu;
+  double def_ell;
+  double def_phi;
+  short normalize;
+  short clobber;
+  short verbose;
+  
+  double *frac_lo;
+  long nfrac;
+  long ii;
+
+  clgetstr( "infile", infile, DS_SZ_PATHNAME );
+  clgetstr( "outfile", outfile, DS_SZ_PATHNAME );
+  clgetstr( "fraction", grid, DS_SZ_PATHNAME );
+
+  clgetstr( "shape", shape, 100 );
+
+  def_x_mu = clgetd("x_centroid");
+  def_y_mu = clgetd("y_centroid");
+  def_phi = clgetd("angle");
+  def_ell = clgetd("ellipticity");
+
+  freeze_centroid = clgetb("fix_centroid");
+  freeze_angle =clgetb("fix_angle");
+  freeze_ell = clgetb("fix_ellipticity");
+
+  tol = clgetd("tolerance");
+  step_tol = clgetd("minstep");
+  walk_max = clgetd("maxwalk");
+  step_start = clgetd("step");
+
+  normalize = clgetb("normalize");
+  clobber = clgetb("clobber");
+  verbose = clgeti("verbose");
+
+
+  if ( NULL == (inBlock=dmImageOpen(infile) )) {
+    err_msg("ERROR: Cannot open input file '%s'\n", infile );
+    return(-1);
+  }
+
+  if ( 0 != ds_clobber( outfile, clobber, NULL )) {
+    return(-2);
+  }
+
+  if ( 0 == (nfrac = parse_grid(grid, &frac_lo ))) {
+    return(-3);
+  }
+
+  
+  /*
+
+  The algorithm is something like this:
+
+   - Get the centroid, ellipticity, and size of moments for entire image
+   - Use these as a starting point.  Draw an ellipse using
+     those parameters and get the enclosed fraction.
+   - Now start iteration.  If the fraction is smaller than
+     desired, then increase the radii (keeping the same ellipticity)
+     if fraction is greater then decrease radii.
+   - If the previous iteration was increasing and the current is
+     decreasing (or visa versa) then change the amount we increment
+     the radii by half.  So that each time we 'change direction' of
+     the search we make smaller and smaller steps until we
+     converge.
+
+   - During each iteration the previously determined centroid,
+     angle, and ellipticity are used with the radii.
+
+   - Once we find a possible solution, we repeat test to 
+     see if the centroid, and moments of the solution 
+     still give us the desired result.  If not then we
+     don't change the step size we just change the centroid,
+     etc. and let the algorithm continue.  We call this
+     letting the parameters 'walk' (kind of a random walk
+     thing)
+
+   - There are two other 'exit' conditions:
+     . if the step size gets too small then we stop.
+     . if we 'walk' too many steps then we could be in some
+       kind of infinite loop so we break out -- basically
+       solution is not uniuqe.
+
+  */
+
+
+
+  /* setup output */
+
+  strcat( outfile, "[REGION]");
+
+  dmBlock *outBlock = dmTableCreate( outfile );
+  if ( NULL == outBlock ) {
+    err_msg("ERROR: Cannot create output file '%s'\n", outfile );
+    return(-34);
+  }
+
+  Header_Type *hdr;
+  hdr = getHdr( (void*) inBlock, hdrDM_FILE );
+
+  if ( 1 != dmBlockGetNo( outBlock ) ) {
+    
+    dmDataset *ds = dmBlockGetDataset( outBlock );
+    dmBlock *pBlock = dmDatasetMoveToBlock( ds, 1 );
+    putHdr( pBlock, hdrDM_FILE, hdr, PRIMARY_STS, "dmellipse") ;
+
+  }
+
+  dmDescriptor *skycol, *scol, *ccol, *rcol, *acol, *Xcol;
+  dmDescriptor *fcol, *Scol;
+  char *colname[2] = { "x", "y"};
+
+  skycol = dmColumnCreateVector( outBlock, "pos", dmDOUBLE, 0, "pixel", "sky coordinates",
+				 colname, 2 );
+  scol = dmColumnCreate( outBlock, "shape", dmTEXT, 30, "", "Region Shape");
+  rcol = dmColumnCreateArray( outBlock, "r", dmDOUBLE, 0, "pixels", "Radii",
+			      2 );
+  acol = dmColumnCreate( outBlock, "rotang", dmDOUBLE, 0, "deg", "Rotation angle");
+
+  fcol = dmColumnCreate( outBlock, "fraction", dmDOUBLE, 0, "", "Fraction");
+
+  ccol = dmColumnCreate( outBlock, "component", dmSHORT, 0, "", "Component");
+  
+  Xcol = dmColumnCreate( outBlock, "state", dmSHORT, 0, "", "Bit encoded state");
+  Scol = dmColumnCreate( outBlock, "converge", dmTEXT, 100, "", "Convergence criteria");
+
+  /* HDU STUFF */
+
+  putHdr( outBlock, hdrDM_FILE, hdr, BASIC_STS, "dmellipse" );
+    
+  dmKeyWrite_c( outBlock, "ORIGIN",  "ASC", "", "" );
+  dmKeyWrite_c( outBlock, "CONTENT", "REGION", "", "");
+  dmKeyWrite_c( outBlock, "HDUDOC", "ASC-FITS-REGION-1.2: Rots, McDowell: FITS REGION "
+		"Binary Table Design", "", "" );
+  dmKeyWrite_c( outBlock, "HDUVERS", "1.2.0", "", "");
+  dmKeyWrite_c( outBlock, "HDUCLASS", "ASC", "", "" );
+  dmKeyWrite_c( outBlock, "HDUCLAS1", "REGION", "", "" );
+  dmKeyWrite_c( outBlock, "HDUCLAS2", "STANDARD", "", "" );
+
+  put_param_hist_info( outBlock, "dmellipse", NULL, 0 );
+
+  /* Read input */
+
+  dt = get_image_data( inBlock, &data, &lAxes, &dss, &null, &has_null );
+  get_image_wcs( inBlock, &xdesc, &ydesc );
+  mask = get_image_mask( inBlock, data, dt, lAxes, dss, null, has_null, 
+			 xdesc, ydesc );
+  
+  
+  /* Err; want to copy WCS from xdesc,ydesc to output sky column */
+
+
+
+
+
+  /* Start algorithm */
+
+
+  if ( INDEFD == step_start ) 
+    step_start = sqrt( 1.0*MAX(lAxes[0],lAxes[1])) ;
+  
+  
+  for ( ii=0;ii<nfrac;ii++ ) {
+    typedef enum { DECREASE=-1, INCREASE=1} Direction;
+    Direction dir = INCREASE;
+    Moments mom;
+    short *ellmask = NULL;
+    float step = step_start;
+    State_Code state = Working;
+
+    float radius;
+    double total;
+    double min_tol, max_tol;
+    short walk = 0;
+    int all_nn;
+    
+    min_tol = frac_lo[ii] - tol;
+    max_tol = frac_lo[ii] + tol;
+    
+    memset(&mom, 0, sizeof(Moments));
+    if ( 0 == (all_nn = get_moments( data, dt, lAxes, mask, xdesc, ydesc, &mom))) {
+      err_msg("ERROR: No data in image\n");
+    }
+
+    if ( INDEFD != def_x_mu ) mom.x_mu = def_x_mu;
+    if ( INDEFD != def_y_mu ) mom.y_mu = def_y_mu;
+    if ( INDEFD != def_ell ) mom.ell = def_ell;
+    if ( INDEFD != def_phi ) mom.phi = def_phi;
+    if ( normalize )
+      total = mom.out[0][0];
+    else
+      total = 1;
+
+    radius = mom.xsig;
+
+
+    double frac; /* Moved outside so we can see actual frac */
+
+    ellmask = (short*)calloc(lAxes[0]*lAxes[1],sizeof(short) );
+    do {    
+      Moments dad;
+      int nn;
+
+      memset(&dad,0,sizeof(Moments));
+      
+      reset_mask( mask, ellmask, lAxes );
+      make_ellipse_mask( ellmask, lAxes, &mom, xdesc, ydesc, radius, shape );
+      nn = get_moments( data, dt, lAxes, ellmask, xdesc, ydesc, &dad );
+      
+
+      frac = dad.out[0][0] / total;
+
+
+      /*-----------------THESE CONDITIONS need REVIEW ---------------*/
+      if ( 0 == nn ) {   /* There are no pixels in the centroid/etc */
+	dir = INCREASE;
+	step /= 2.0;
+	if ( step < step_tol ) {
+	  err_msg("WARNING: Step size limit reached\n");
+	  state=Converge;
+
+	}
+	else 
+	  radius += step;
+	goto verb;
+      }
+
+      if ( ( 1 == nn ) &&  /* There is only 1 pixel left */
+	   ( frac > min_tol ) ) { /* But fraction is still too high */
+	err_msg("WARNING: Could not make ellipse small enough\n");
+	state=TooSmall;
+	goto verb;
+      }
+
+      if (( nn == all_nn) && ( frac < min_tol ) ) {
+	err_msg("WARNING: Could not make ellipse big enough\n");
+	state=TooBig;
+	goto verb;
+      }
+
+      /* ------------------------------------------------------------*/
+
+
+      if ( frac < min_tol ) {
+	if (INCREASE == dir ) {
+	  /* do nothing */
+	} else {
+	  dir = INCREASE;
+	  step /= 2.0; /* Change dir, so go half steps */
+	}
+	if ( step < step_tol ) {
+	  err_msg("WARNING: Could not converge to within tolerance=%g "
+		  "of value=%g%%; final value is %g%%\n", tol, 
+		  (frac_lo[ii]*100.0), (frac*100.0) );
+	  state = Converge;
+	} else {
+	  radius += (dir*step);
+	}
+	walk = 0;
+      } else if ( frac > max_tol ) {
+	if (DECREASE == dir ) {
+	  /* do nothing */
+	} else {
+	  dir = DECREASE;
+	  step /= 2.0; /* Change dir, so go half steps */
+	}
+	if ( step < step_tol ) {
+	  err_msg("WARNING: Could not converge to within tolerance=%g "
+		  "of value=%g%%; final value is %g%%\n", tol, 
+		  (frac_lo[ii]*100.0), (frac*100.0) );
+	  state = Converge;
+	} else {
+	  radius += (dir*step);
+	  
+	  if ( radius < 0 ) {
+	    radius = fabs(radius);
+	    step /=2.0;
+	  }
+
+	} 
+	walk = 0;
+      }
+
+      if ( 0 != freeze_centroid ) {
+	dad.x_mu = mom.x_mu;
+	dad.y_mu = mom.y_mu;
+      }
+      if ( 0 != freeze_ell ) {
+	dad.ell = mom.ell;
+      }
+      if ( 0 != freeze_angle ) {
+	dad.phi = mom.phi;
+      }
+
+      memcpy( &mom, &dad, sizeof(Moments));
+
+      if (( frac >= min_tol ) && ( frac <= max_tol )) {
+	memset(&dad,0,sizeof(Moments));
+	
+	/* have to double check that centroid & angle are still good */
+	reset_mask( mask, ellmask, lAxes );
+	make_ellipse_mask( ellmask, lAxes, &mom, xdesc, ydesc, radius, shape );
+	get_moments( data, dt, lAxes, ellmask, xdesc, ydesc, &dad );
+	frac = dad.out[0][0] / total;
+	
+	if ( (frac >= min_tol ) && (frac <= max_tol )) {
+	  state = Success; /* We're good; keep radius, and mom values */
+	  /* 
+	     At this point we could use the new dad values; but
+	     we verified that 'mom' converged.  If we were to use
+	     'dad' then we'd have to check 'dad' ... which
+	     would cause us to loop over and over again
+	  */
+
+	} else {
+
+	  walk++;
+	  if ( walk >= walk_max ) {
+	    err_msg("WARNING: Did not find a unique solution after %d"
+		    " iterations for %g%%\n", walk,
+		    (frac_lo[ii]*100.0) );
+	    state = TooManySteps;
+	  }
+	  /* Keep going; we haven't converged yet */
+	}
+      }
+      
+
+    verb:
+      if ( verbose > 1 ) {
+	fprintf(stderr, "state=%d\t", state);
+	fprintf(stderr, "centroid=(%g,%g)\t", mom.x_mu, mom.y_mu);
+	fprintf(stderr, "ellipticity=%g\t", mom.ell);
+	fprintf(stderr, "angle=%g\t", mom.phi);
+	fprintf(stderr, "radius=%g\t", radius );
+	fprintf(stderr, "frac=%g\t", frac);
+	fprintf(stderr, "dir=%d\t", dir);
+	fprintf(stderr, "step=%g\t", step);
+	fprintf(stderr, "\n");
+      }
+
+      
+    } while ( Working == state );
+    free(ellmask);
+
+    char comment[1000];
+
+    switch (state) {
+      
+    case Success:
+      sprintf( comment, "OK" );
+      break;
+    case Converge:
+      sprintf( comment, "CANNOT_CONVERGE" );
+      break;
+    case TooSmall:
+      sprintf( comment, "ELLIPSE_TOO_SMALL" );
+      break;
+    case TooBig:
+      sprintf( comment, "ELLIPSE_TOO_BIG" );
+      break;
+    case TooManySteps:
+      sprintf( comment, "WALK_TOO_MANY_STEPS" );
+      break;
+    case Working:
+    default:
+      sprintf( comment, "ERROR: You shouldn't be here"); /* Should never get here */
+      break;
+    
+    }
+
+
+
+    double tmpval[2];
+    tmpval[0] = mom.x_mu;
+    tmpval[1] = mom.y_mu;
+    dmSetVector_d( skycol, tmpval, 2 );
+    dmSetScalar_c( scol, shape );
+    dmSetScalar_d( acol, mom.phi );
+    tmpval[0] =  radius;
+    tmpval[1] =  (radius/mom.ell);
+    dmSetArray_d( rcol, tmpval, 2 );
+    dmSetScalar_f( fcol, frac );
+    dmSetScalar_s( ccol, ii );
+    dmSetScalar_s( Xcol, state );
+    dmSetScalar_c( Scol, comment);
+
+    dmTableNextRow( outBlock );
+  } /* end loop over fraction */
+
+  //  fclose(out_fp);
+  dmTableClose( outBlock);
+
+  return(0);
+
+
+}
+
