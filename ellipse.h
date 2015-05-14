@@ -163,3 +163,5 @@ OutputValues *find_ellipse( ProcessingParams *proc, short is_image, Image *img, 
 
 
 void get_table_mask( dmDescriptor *zcolDesc, Table *tab);
+
+void purge_duplicates_in_tab( Table *tab );

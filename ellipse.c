@@ -480,8 +480,90 @@ Table *load_table_file( dmBlock *inBlock, char *xcol, char *ycol, char *zcol )
         }
    }
 
+
+  purge_duplicates_in_tab( tab );
+
   return(tab);
 }
+
+
+
+ 
+void purge_duplicates_in_tab( Table *tab )
+{    
+    /*
+     * Multiple rows with the same x,y in the table can slow things down.
+     * 
+     * Collapse the same x,y into a value with the sum() of the vals's
+     * 
+     * This has an interesting side-effect w.r.t. accumulated
+     * error in float-point values when computing the moments -- it seems
+     * to make things more stable.  
+     * 
+     * */
+     
+    
+    long ii;
+    long jj;
+    
+    long n_minus_1 = tab->nrows-1;
+    long nout = 0;
+    
+    /* Identify duplicate (x,y) */
+    
+    for (ii=0;ii< n_minus_1; ii++) {        
+        for (jj=ii+1; jj< tab->nrows; jj++) {
+            /* Could do an epsilon check here */
+            if (( tab->xx[ii] == tab->xx[jj] ) && ( tab->yy[ii] == tab->yy[jj] )) {
+
+                tab->vals[ii] += tab->vals[jj];  // Increment old value
+                tab->mask[jj] = 0;   // Set j-th to be bad.
+
+            }
+        } // end for jj
+    } // end for ii
+    
+
+
+    /* Repack the table values purging duplicates */
+    
+    double *xx, *yy, *vals;
+    short *mask;
+    xx = (double*)calloc(tab->nrows, sizeof(double));
+    yy = (double*)calloc(tab->nrows, sizeof(double));
+    vals = (double*)calloc(tab->nrows, sizeof(double));
+    mask = (short*)calloc(tab->nrows, sizeof(short));
+    nout = 0;
+    for (ii=0;ii<tab->nrows;ii++) {
+        if ( 0 == tab->mask[ii] )
+            continue;
+        
+        xx[nout] = tab->xx[ii];
+        yy[nout] = tab->yy[ii];
+        vals[nout] = tab->vals[ii];
+        mask[nout] = tab->mask[ii];
+        nout++;
+                
+    } // end for ii
+
+
+    // printf("IN: %ld\tOUT:%ld\n", tab->nrows, nout );
+
+    tab->nrows = nout;
+    free( tab->xx );
+    tab->xx = xx;    
+    free(tab->yy);
+    tab->yy = yy;
+    free(tab->mask);
+    tab->mask = mask;
+    free(tab->vals);
+    tab->vals = vals;
+
+    return;
+}
+
+
+
 
 
 /* If zcolumn is an interger, and has a NUL value set then setup mask */
