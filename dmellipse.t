@@ -247,10 +247,10 @@ do
 #
 # KJG New for table stuff -- change Tes/INDIR to INDIR 
 #
-    test_table_normal ) test1_string="dmellipse Test/INDIR/'acisf00635_000N001_0001b_psf3_nonzero.tab[cols x,y,z=value]' $outfile 0.9 norm+ clob+"
+    test_table_normal ) test1_string="./dmellipse \"Test/INDIR/acisf00635_000N001_0001b_psf3_nonzero.tab[cols x,y,z=value]\" $outfile 0.9 norm+ clob+"
             ;;
     
-    test_table_nullvals ) test1_string="dmellipse Test/INDIR/i_mmm.tab.fits $outfile 0.9 norm+ clob+"
+    test_table_nullvals ) test1_string="./dmellipse Test/INDIR/i_mmm.tab.fits $outfile 0.9 norm+ clob+"
             ;;
     
 
