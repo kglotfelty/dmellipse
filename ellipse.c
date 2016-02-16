@@ -607,7 +607,7 @@ void get_table_mask( dmDescriptor *zcolDesc, Table *tab)
 
 
 /* Create the output file */
-OutputFile *make_output_file( dmBlock *inBlock, char *outfile, short clobber ) 
+OutputFile *make_output_file( dmBlock *inBlock, char *outfile, double tol, short clobber ) 
 {
 
   OutputFile *outtab = (OutputFile*)calloc(1,sizeof(OutputFile));
@@ -644,9 +644,9 @@ OutputFile *make_output_file( dmBlock *inBlock, char *outfile, short clobber )
 
   /* TODO: Uncomment out below to add RFE new column.  Only commented out
    * to make regresson tests PASS */
-  // outtab->dfcol = dmColumnCreate( outtab->outBlock, "input_fraction", dmDOUBLE, 0, "", "Input Fraction");
 
   outtab->fcol = dmColumnCreate( outtab->outBlock, "fraction", dmDOUBLE, 0, "", "Fraction");
+  outtab->dfcol = dmColumnCreate( outtab->outBlock, "input_fraction", dmDOUBLE, 0, "", "Input Fraction");
 
   outtab->ccol = dmColumnCreate( outtab->outBlock, "component", dmSHORT, 0, "", "Component");
   
@@ -665,6 +665,7 @@ OutputFile *make_output_file( dmBlock *inBlock, char *outfile, short clobber )
   dmKeyWrite_c( outtab->outBlock, "HDUCLASS", "ASC", "", "" );
   dmKeyWrite_c( outtab->outBlock, "HDUCLAS1", "REGION", "", "" );
   dmKeyWrite_c( outtab->outBlock, "HDUCLAS2", "STANDARD", "", "" );
+  dmKeyWrite_d( outtab->outBlock, "FRACTOL", tol, "", "Requested tolerance on the input_fraction" );
 
   put_param_hist_info( outtab->outBlock, "dmellipse", NULL, 0 );
 
@@ -988,10 +989,8 @@ void write_output( OutputFile *outtab, OutputValues *outvals, int ii )
     tmpval[0] =  outvals->major_axis;
     tmpval[1] =  outvals->minor_axis;
     dmSetArray_d( outtab->rcol, tmpval, 2 );
-
-    /*TODO: Uncomment out below with above to add new column to output */
-    // dmSetScalar_f( outtab->dfcol, outvals->frac_in );
     dmSetScalar_f( outtab->fcol, outvals->frac_out );
+    dmSetScalar_f( outtab->dfcol, outvals->frac_in );
     dmSetScalar_s( outtab->ccol, ii );
     dmSetScalar_s( outtab->Xcol, outvals->state );
     dmSetScalar_c( outtab->Scol, comment);
@@ -1076,7 +1075,7 @@ int ellipse(void)
   }
   
   /* Setup output */ 
-  if ( NULL == ( outtab = make_output_file( inBlock, outfile, clobber)) ) {
+  if ( NULL == ( outtab = make_output_file( inBlock, outfile, proc.tol, clobber)) ) {
      return(-34);
   } 
 

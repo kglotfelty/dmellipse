@@ -150,7 +150,7 @@ Table *load_table_file( dmBlock *inBlock, char *xcol, char *ycol, char *zcol);
 void compute_ellipse_vals_from_moment( Moments *mom, double sum_vals );
 
 /* Create output file */
-OutputFile *make_output_file( dmBlock *inBlock, char *outfile, short clobber );
+OutputFile *make_output_file( dmBlock *inBlock, char *outfile, double tol, short clobber );
 
 /* Turn state code into read words */
 void get_state_string( short state, char *comment );
