@@ -646,7 +646,7 @@ OutputFile *make_output_file( dmBlock *inBlock, char *outfile, double tol, short
    * to make regresson tests PASS */
 
   outtab->fcol = dmColumnCreate( outtab->outBlock, "fraction", dmDOUBLE, 0, "", "Fraction");
-  outtab->dfcol = dmColumnCreate( outtab->outBlock, "input_fraction", dmDOUBLE, 0, "", "Input Fraction");
+  outtab->dfcol = dmColumnCreate( outtab->outBlock, "input_fraction", dmDOUBLE, 0, "", "Requested Fraction");
 
   outtab->ccol = dmColumnCreate( outtab->outBlock, "component", dmSHORT, 0, "", "Component");
   
